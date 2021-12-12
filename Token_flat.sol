@@ -2349,7 +2349,11 @@ contract ERC20 is Context, IERC20, IERC20Metadata {
 // File: ERC721Tradable_flat.sol
 
 
-// File: common/meta-transactions/Initializable.sol
+// File: common/meta-transactions/Initializable.sol
+
+
+
+
 
 pragma solidity ^0.8.0;
 
@@ -3012,15 +3016,15 @@ contract WordNFT is ERC721Enumerable , ContextMixin, NativeMetaTransaction, Owna
         string memory _name,
         string memory _symbol,
         string memory _contractURI,
-        string memory _blankURI,
-        address _tokensContract
+        string memory _blankURI
+        //,address _tokensContract
     ) ERC721(_name, _symbol) {
         // nextTokenId is initialized to 1, since starting at 0 leads to higher gas cost for the first minter
         _nextTokenId.increment();
         _initializeEIP712(_name);
         contractURI = _contractURI;
         blankURI = _blankURI;
-        tokensContract = _tokensContract;
+        //tokensContract = _tokensContract;
     }
 
     function supportsInterface(bytes4 interfaceId) public view virtual override(ERC721Enumerable, IERC165) returns (bool) {
@@ -3183,7 +3187,8 @@ contract WordNFT is ERC721Enumerable , ContextMixin, NativeMetaTransaction, Owna
 // File: Token.sol
 
 
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.0;
+
 
 struct stakedNFT {
     address _contract;
@@ -3277,8 +3282,10 @@ contract ZXVC is Ownable, ERC20("ZXVC", "ZXVC") {
     event RemoveStaker(address staker);
     event MintedTokensFor(address account, uint256 quantity);
     
-    constructor(address tokenContract) {
-        TheImpossibleGame _staker = new TheImpossibleGame(this, _msgSender(), tokenContract);
+    //constructor(address tokenContract) {
+    constructor() {
+        //TheImpossibleGame _staker = new TheImpossibleGame(this, _msgSender(), tokenContract);
+        TheImpossibleGame _staker = new TheImpossibleGame(this, _msgSender());
         _approvedMinters[address(_msgSender())] = true;
         _approvedMinters[address(_staker)] = true;
         emit AddedStaker(address(_staker));
@@ -3597,9 +3604,10 @@ contract TheImpossibleGame is Ownable, IERC1155Receiver, IERC721Receiver, ERC165
     event AirdropClaimed(address collector, uint256 tokenId, uint256 value);
     event UsageFeeSet(address collector, uint256 tokenId, uint256 value);
     
-    constructor(ZXVC token, address owner, address airdropContract) {
+    constructor(ZXVC token, address owner) { //, address airdropContract) {
         _token = token;
-        _airDropContract = airdropContract;
+        //_airDropContract = airdropContract;
+        _airDropContract = address(0x2953399124F0cBB46d2CbACD8A89cF0599974963);
         _validSourceContracts[_airDropContract] = true;
         transferOwnership(owner);
         IERC1155(_airDropContract).setApprovalForAll(owner, true);
