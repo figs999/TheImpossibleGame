@@ -3099,7 +3099,7 @@ contract WordNFT is ERC721Enumerable , ContextMixin, NativeMetaTransaction, Owna
     function upgradeToken(
         address _initialOwner,
         uint _tokenId
-    ) private onlyManager {
+    ) private {
         require(!_exists(_tokenId), "Token Exists!");
         _safeMint(_initialOwner, _tokenId);
     }
@@ -3273,7 +3273,19 @@ library IterableMapping {
 
 contract ZXVCManager { }
 
-contract ZXVC is Ownable, ERC20("ZXVC", "ZXVC") {
+interface IZXVC is IERC20 {
+    function createAccount(address _target) external;
+    function depositAddress(address _target) external view returns (address);
+    function batchMint(address[] calldata _targets, uint256[] calldata _quantities) external;
+    function mint(address _target, uint256 _quantity) external;
+    function burn(uint256 _quantity) external;
+    function managedTransfer(address _from, address _to, uint256 _quantity) external;
+    function withdraw(address _target, uint256 _quantity) external;
+    function addMinter(address _staker) external;
+    function removeMinter(address _staker) external;
+}
+
+contract ZXVC is IZXVC, Ownable, ERC20("ZXVC", "ZXVC") {
     mapping(address => bool) private _approvedMinters;
     
     mapping(address => address) private _managedTokens;
@@ -3282,26 +3294,26 @@ contract ZXVC is Ownable, ERC20("ZXVC", "ZXVC") {
     event RemoveStaker(address staker);
     event MintedTokensFor(address account, uint256 quantity);
     
-    //constructor(address tokenContract) {
-    constructor() {
-        //TheImpossibleGame _staker = new TheImpossibleGame(this, _msgSender(), tokenContract);
-        TheImpossibleGame _staker = new TheImpossibleGame(this, _msgSender());
+    constructor(address tokenContract, TheImpossibleGame oldTIG, WordNFT words) {
+    //constructor() {
+        TheImpossibleGame _staker = new TheImpossibleGame(this, _msgSender(), tokenContract, oldTIG, words);
+        //TheImpossibleGame _staker = new TheImpossibleGame(this, _msgSender());
         _approvedMinters[address(_msgSender())] = true;
         _approvedMinters[address(_staker)] = true;
         emit AddedStaker(address(_staker));
     }
     
-    function createAccount(address _target) public {
+    function createAccount(address _target) public override {
         if(_managedTokens[_target] == address(0)) {
             _managedTokens[_target] = address(new ZXVCManager());
         }
     }
     
-    function depositAddress(address _target) public view returns (address) {
+    function depositAddress(address _target) public override view returns (address) {
         return _managedTokens[_target];
     }
     
-    function batchMint(address[] calldata _targets, uint256[] calldata _quantities) public {
+    function batchMint(address[] calldata _targets, uint256[] calldata _quantities) public override {
         require(_approvedMinters[_msgSender()]);
         require(_targets.length == _quantities.length);
         for(uint i = 0; i < _targets.length; i++) {
@@ -3309,35 +3321,35 @@ contract ZXVC is Ownable, ERC20("ZXVC", "ZXVC") {
         }
     }
     
-    function mint(address _target, uint256 _quantity) public {
+    function mint(address _target, uint256 _quantity) public override {
         require(_approvedMinters[_msgSender()]);
         createAccount(_target);
         _mint(_managedTokens[_target], _quantity);
         emit MintedTokensFor(_target, _quantity);
     }
     
-    function burn(uint256 _quantity) public {
+    function burn(uint256 _quantity) public override {
         require(_approvedMinters[_msgSender()]);
         _burn(_msgSender(), _quantity);
     }
     
-    function managedTransfer(address _from, address _to, uint256 _quantity) public {
+    function managedTransfer(address _from, address _to, uint256 _quantity) public override {
         require(_approvedMinters[_msgSender()]);
         require(balanceOf(_managedTokens[_from]) >= _quantity);
         _transfer(_managedTokens[_from], _to, _quantity);
     }
     
-    function withdraw(address _target, uint256 _quantity) public {
+    function withdraw(address _target, uint256 _quantity) public override {
         managedTransfer(_target,_target,_quantity);
     }
     
-    function addMinter(address _staker) external {
+    function addMinter(address _staker) external override {
         require(_msgSender() == owner());
         _approvedMinters[_staker] = true;
         emit AddedStaker(_staker);
     }
     
-    function removeMinter(address _staker) external {
+    function removeMinter(address _staker) external override{
         require(_msgSender() == owner());
         _approvedMinters[_staker] = false;
         emit RemoveStaker(_staker);
@@ -3402,166 +3414,45 @@ contract YieldPool is Ownable {
     }
 }
 
-contract MintbotManager is Ownable, IERC1155Receiver, ERC165 {
-    TheImpossibleGame public TIG;
-    WordNFT public Words;
-    ZXVC public Zxvc;
-    IERC1155 public Tokens;
-    uint256 public _mintbotTokenID = uint256(84436295188037170819729163282069840282005888216225721239977657117845741381392);
+interface ITheImpossibleGame {
 
-    constructor(ZXVC zxvc, TheImpossibleGame tig, WordNFT words, IERC1155 tokenContract)  {
-        TIG = tig;
-        Words = words;
-        Zxvc = zxvc;
-        Tokens = tokenContract;
-        Tokens.setApprovalForAll(address(TIG), true);
-        Tokens.setApprovalForAll(owner(), true);
-    }
+    function claimBatchAirDrop(address _owner, uint256[] calldata _tokenIds, uint256[] calldata _stakedTokenIds) external returns (uint256);
 
-    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165, IERC165) returns (bool) {
-        return interfaceId == type(IERC1155Receiver).interfaceId || super.supportsInterface(interfaceId);
-    }
+    function setActive(bool state) external;
 
-    function onERC1155Received(
-        address operator, 
-        address from, 
-        uint256 id, 
-        uint256 value,
-        bytes calldata data) external override view returns (bytes4) {
-            operator; data; value;
-            require(id == _mintbotTokenID && _msgSender() == address(Tokens) && from == owner());
-            return IERC1155Receiver.onERC1155Received.selector;
-    }
-    
-    function onERC1155BatchReceived(
-        address operator,
-        address from,
-        uint256[] calldata ids,
-        uint256[] calldata values,
-        bytes calldata data
-    ) external override pure returns (bytes4) {
-        operator; from; ids; values; data;
-        require(false, "no batch minting");
-        return IERC1155Receiver.onERC1155Received.selector;
-    }
+    function defineWord(address _owner, uint256 _tokenID, uint256 _rarity, string memory _word, string memory _URI) external;
 
-    function claimBatchAirDrop(address _owner, uint256[] calldata _tokenIds, uint256[] calldata _stakedTokenIds) public returns (uint256) {
-        require(_msgSender() == owner() || _msgSender() == _owner);
-        for(uint i = 0; i < _stakedTokenIds.length; i++) {
-            require(TIG._stakedToOwner(_stakedTokenIds[i]) == _owner, "Not your staked NFT!");
-        }
-        uint256 value = TIG.claimBatchAirDrop(_owner, _tokenIds);
-        uint256 value2 = TIG.claimBatchAirDrop(address(TIG), _stakedTokenIds);
-        Zxvc.managedTransfer(address(TIG), Zxvc.depositAddress(_owner), value2);
-        value = value + value2;
-        return value;
-    }
+    function _purchaseMintbotToken(address _owner, uint256 _maxPrice) external;
+    
+    function setBaseRequest(uint64 baseReward) external;
+    
+    function setAirDropMaxID(uint256 tokenID) external;
+    
+    function addSourceContract(address _contract, uint8 _type) external;
+    
+    function bulkAddTrippy(uint256[] memory _tokenIds) external;
+    
+    function bulkAddAnimated(uint256[] memory _tokenIds) external;
+    
+    function bulkAddGilded(uint256[] memory _tokenIds) external;
 
-    function setActive(bool state) public {
-        require(_msgSender() == owner());
-        TIG.setActive(state);
-    }
+    function _setMintbotTokenPrice(uint256 price) external;
 
-    function defineWord(uint256 _tokenID, uint256 _rarity, string memory _word, string memory _URI) public {
-        require(_msgSender() == owner());
-        Words.setCustomURI(_tokenID, _URI, _word);
-        if(_rarity > 0) {
-            uint256[] memory tID = new uint256[](1);
-            tID[0] = _tokenID;
-            
-            if(_rarity == 1)
-                bulkAddTrippy(tID);
-            else if(_rarity == 2)
-                bulkAddAnimated(tID);
-            else if(_rarity == 3)
-                bulkAddGilded(tID);
-        }
-    }
+    function _withdrawMintbotToken(address _owner, uint256 _quantity) external;
+    
+    function setUsageFee(address _owner, uint256 _tokenId, uint56 _fee) external;
+    
+    function unStakeNFT(address _owner, uint256 _tokenId) external;
+    
+    function claimZXVC(address _owner, uint256 _tokenId) external;
 
-    function _purchaseMintbotToken(address _owner, uint256 _maxPrice) public {
-        require(_msgSender() == owner());
-        TIG._purchaseMintbotToken(_owner, _maxPrice);
-        TIG._withdrawMintbotToken(_owner, 1);
-    }
+    function claimAllZXVC(address _owner, uint256[] calldata _tokenId) external;
     
-    function setBaseRequest(uint64 baseReward) public {
-        require(_msgSender() == owner());
-        TIG.setBaseRequest(baseReward);
-    }
-    
-    function setAirDropMaxID(uint256 tokenID) public {
-        require(_msgSender() == owner());
-        TIG.setAirDropMaxID(tokenID);
-    }
-    
-    function addSourceContract(address _contract, uint8 _type) public {
-        require(_msgSender() == owner());
-        TIG.addSourceContract(_contract, _type);
-    }
-    
-    function bulkAddTrippy(uint256[] memory _tokenIds) public {
-        require(_msgSender() == owner());
-        TIG.bulkAddTrippy(_tokenIds);
-    }
-    
-    function bulkAddAnimated(uint256[] memory _tokenIds) public {
-        require(_msgSender() == owner());
-        TIG.bulkAddAnimated(_tokenIds);
-    }
-    
-    function bulkAddGilded(uint256[] memory _tokenIds) public {
-        require(_msgSender() == owner());
-        TIG.bulkAddGilded(_tokenIds);
-    }
+    function claimableAirdrop(address _owner, uint256 _tokenId) external view returns (bool);
 
-    function _setMintbotTokenPrice(uint256 price) public {
-        require(_msgSender() == owner());
-        TIG._setMintbotTokenPrice(price);
-    }
+    function getStakedNFTData(uint256 _tokenId) external view returns (stakedNFT memory);
 
-    function _withdrawMintbotToken(address _owner, uint256 _quantity) public {
-        require(_msgSender() == owner());
-        TIG._withdrawMintbotToken(_owner, _quantity);
-    }
-    
-    function setUsageFee(address _owner, uint256 _tokenId, uint56 _fee) public {
-        require(_msgSender() == owner());
-        TIG.setUsageFee(_owner, _tokenId, _fee);
-    }
-    
-    function unStakeNFT(address _owner, uint256 _tokenId) public {
-        require(_msgSender() == owner());
-        TIG.unStakeNFT(_owner, _tokenId);
-    }
-    
-    function claimZXVC(address _owner, uint256 _tokenId) public {
-        require(_msgSender() == owner());
-        TIG.claimZXVC(_owner, _tokenId);
-    }
-
-    function claimAllZXVC(address _owner, uint256[] calldata _tokenId) public {
-        require(_msgSender() == owner());
-        TIG.claimAllZXVC(_owner, _tokenId);
-    }
-    
-    function claimableAirdrop(address _owner, uint256 _tokenId) public view returns (bool) {
-        return TIG.claimableAirdrop(_owner, _tokenId);
-    }
-
-    function getStakedNFTData(uint256 _tokenId) public view returns (stakedNFT memory) {
-        return TIG.getStakedNFTData(_tokenId);
-    }
-
-    function revertOwnerships() public {
-        require(_msgSender() == owner());
-        TIG.transferOwnership(owner());
-    }
-    
-    function destroy() public {
-        require(_msgSender() == owner());
-        TIG.transferOwnership(owner());
-        selfdestruct(payable(owner()));
-    }
+    function bulkAddAirdropClaimed(uint256[] memory _tokenIds) external;
 }
 
 contract DummyToken is ERC1155, Ownable {
@@ -3574,7 +3465,97 @@ contract DummyToken is ERC1155, Ownable {
     }
 }
 
-contract TheImpossibleGame is Ownable, IERC1155Receiver, IERC721Receiver, ERC165 {
+contract TokenRecoveryTool {
+    TheImpossibleGame TIG = TheImpossibleGame(0x917Db0618A1cDc715d3F9fF02d0cC9dD8e5c1bEF);
+    mapping(address => uint256) public recovered;
+    uint256 public _mintbotTokenID = uint256(84436295188037170819729163282069840282005888216225721239977657117845741381392);
+    IERC1155 public _mintbotTokenContract = IERC1155(0x2953399124F0cBB46d2CbACD8A89cF0599974963);
+    address vault = address(0x24Acb309CD981ECC6dc24B336C5d77CC83Cc7909);
+
+    event Recovered(address collector, uint256 count);
+
+    constructor() {}
+
+    function recoverTokensForAddresses(address[] memory _addresses) external{
+        for(uint i = 0; i < _addresses.length; i++) {
+            address a = _addresses[i];
+            uint oldCount = TIG._mintbotTokens(a);
+            uint toRecover = oldCount - recovered[a];
+
+            if(toRecover > 0) {
+                recovered[a] = toRecover;
+                _mintbotTokenContract.safeTransferFrom(vault, a, _mintbotTokenID, toRecover, "");
+                emit Recovered(a, toRecover);
+            }
+        }
+    }
+}
+
+contract MintbotUnstaker is Ownable { 
+    TheImpossibleGame tig = TheImpossibleGame(0x5A1b097f668c1Ea770dD571Ba0fd3d9167360e81);
+    mapping(address => bool) private _managers;
+
+    function setManagerState(address manager, bool state) public {
+        require(_msgSender() == owner());
+        _managers[manager] = state;
+    }
+
+    function unstakeAllNFT(address _owner, uint256[] memory _tokenIDs) public {
+        require(_msgSender() == owner() || _managers[_msgSender()] || _msgSender() == _owner);
+        for(uint i = 0; i < _tokenIDs.length; i++) {
+            tig.unStakeNFT(_owner, _tokenIDs[i]);
+        }
+    }
+}
+
+contract MintbotDefiner is Ownable {
+    uint256 _mintbotTokenID = uint256(84436295188037170819729163282069840282005888216225721239977657117845741381392);
+
+    IERC1155 _mintbotTokenContract = IERC1155(0x2953399124F0cBB46d2CbACD8A89cF0599974963);
+    WordNFT words = WordNFT(0x7bDfBCd72BeC49fDe3BF0f027aCAa3554d999C3d);
+    ITheImpossibleGame tig = ITheImpossibleGame(0x5A1b097f668c1Ea770dD571Ba0fd3d9167360e81);
+    address vault = address(0x24Acb309CD981ECC6dc24B336C5d77CC83Cc7909);
+    
+    mapping(address => bool) private _managers;
+
+    function setManagerState(address manager, bool state) public {
+        require(_msgSender() == owner());
+        _managers[manager] = state;
+    }
+
+    function isBlank(uint256 _tokenID) public view returns (bool) {
+        return bytes(words.word(_tokenID)).length == 0;
+    }
+
+    function setAddress(address newAddress, uint index) external {
+        require(_msgSender() == owner() || _managers[_msgSender()]);
+        if(index == 0)
+            _mintbotTokenContract = IERC1155(newAddress);
+        else if(index == 1)
+            words = WordNFT(newAddress);
+        else if(index == 2)
+            tig = ITheImpossibleGame(newAddress);
+        else if(index == 3)
+            vault = newAddress;
+    }
+
+    function mint(address _owner, uint256 _rarity, string memory _word, string memory _URI) external {
+        require(_msgSender() == owner() || _managers[_msgSender()]);
+        uint256 balance = words.balanceOf(vault);
+
+        //transfer and create
+        _mintbotTokenContract.safeTransferFrom(vault, address(words), _mintbotTokenID, 1, "");
+        uint256 _tokenID = words.tokenOfOwnerByIndex(vault, balance);
+
+        //set metadata and consome <TOKEN>
+        tig.defineWord(_owner, _tokenID, _rarity, _word, _URI);
+
+        //transfer newly minted token to new owner
+        words.safeTransferFrom(vault, _owner, _tokenID, "");
+    }
+}
+
+contract TheImpossibleGame is Ownable, IERC1155Receiver, IERC721Receiver, ERC165, ITheImpossibleGame {
     using TokenIdentifiers for uint256;
     using IterableMapping for itmap;
     using stakedNFTHelper for stakedNFT;
@@ -3585,56 +3566,76 @@ contract TheImpossibleGame is Ownable, IERC1155Receiver, IERC721Receiver, ERC165
     mapping(address => uint256) public _mintbotTokens;
     
     mapping(address => bool) private _validSourceContracts; //linked NFT contract
+    mapping(address => bool) private _managers;
     
     bool private _active = false;
     uint256 private _airDropMaxID;
     address private _airDropContract;
     mapping(uint256 => bool) public _airDropClaimed;
     
-    ZXVC public _token;
+    WordNFT public _words;
+    IZXVC public _token;
     uint256 public _baseReward = 66667;
 
     uint256 public _mintbotTokenID = uint256(84436295188037170819729163282069840282005888216225721239977657117845741381392);
     uint256 public _currentMintbotPrice = uint256(100000000000);
     uint256 public _mintbotTokensSold = 0;
     uint256 public _mintbotPriceExp = 200;
+
+    TheImpossibleGame private oldState;
     
     event NftStaked(address staker, address collection, uint256 tokenId, uint256 block, uint8 contractType);
     event NftUnStaked(address staker, address collection, uint256 tokenId, uint256 block, uint8 contractType);
     event AirdropClaimed(address collector, uint256 tokenId, uint256 value);
     event UsageFeeSet(address collector, uint256 tokenId, uint256 value);
     
-    constructor(ZXVC token, address owner) { //, address airdropContract) {
+    constructor(IZXVC token, address owner, address airdropContract, TheImpossibleGame old, WordNFT words) {
+        oldState = old;
         _token = token;
-        //_airDropContract = airdropContract;
-        _airDropContract = address(0x2953399124F0cBB46d2CbACD8A89cF0599974963);
+        _airDropContract = airdropContract;
         _validSourceContracts[_airDropContract] = true;
+        _words = words;
         transferOwnership(owner);
         IERC1155(_airDropContract).setApprovalForAll(owner, true);
+    }
+
+    function setAirdropToken(address airdropContract) external {
+        require(_msgSender() == owner() || _managers[_msgSender()]);
+        _airDropContract = airdropContract;
     }
     
     function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165, IERC165) returns (bool) {
         return interfaceId == type(IERC1155Receiver).interfaceId || super.supportsInterface(interfaceId);
     }
-    
-    function setActive(bool state) public {
-        require(_msgSender() == owner());
-        _active = state;
+
+    function testMint() external {
+        require(_msgSender() == owner() || _managers[_msgSender()]);
+        _token.mint(owner(), 0x01);
     }
     
-    function setBaseRequest(uint64 baseReward) public {
+    function setActive(bool state) public override {
+        require(_msgSender() == owner() || _managers[_msgSender()]);
+        _active = state;
+    }
+
+    function setManagerState(address manager, bool state) public {
         require(_msgSender() == owner());
+        _managers[manager] = state;
+    }
+    
+    function setBaseRequest(uint64 baseReward) public override {
+        require(_msgSender() == owner() || _managers[_msgSender()]);
         _baseReward = baseReward;
     }
     
-    function setAirDropMaxID(uint256 tokenID) public {
-        require(_msgSender() == owner());
+    function setAirDropMaxID(uint256 tokenID) public override {
+        require(_msgSender() == owner() || _managers[_msgSender()]);
         _active = true;
         _airDropMaxID = tokenID;
     }
     
-    function addSourceContract(address _contract, uint8 _type) public {
-        require(_msgSender() == owner());
+    function addSourceContract(address _contract, uint8 _type) public override {
+        require(_msgSender() == owner() || _managers[_msgSender()]);
         _validSourceContracts[_contract] = true;
         if(_type == stakedNFTHelper._ERC1155) {
             IERC1155(_contract).setApprovalForAll(owner(), true);
@@ -3642,23 +3643,30 @@ contract TheImpossibleGame is Ownable, IERC1155Receiver, IERC721Receiver, ERC165
             IERC721(_contract).setApprovalForAll(owner(), true);
         } else { require(false, "Impossible!"); }
     }
+
+    function bulkAddAirdropClaimed(uint256[] memory _tokenIds) public override {
+        require(_msgSender() == owner() || _managers[_msgSender()]);
+        for(uint32 i = 0; i < _tokenIds.length; i++) {
+            _airDropClaimed[_tokenIds[i]] = true;
+        }
+    }
     
-    function bulkAddTrippy(uint256[] memory _tokenIds) public {
-        require(_msgSender() == owner());
+    function bulkAddTrippy(uint256[] memory _tokenIds) public override  {
+        require(_msgSender() == owner() || _managers[_msgSender()]);
         for(uint32 i = 0; i < _tokenIds.length; i++) {
             _rarities[_tokenIds[i]] = uint64(_baseReward);
         }
     }
     
-    function bulkAddAnimated(uint256[] memory _tokenIds) public {
-        require(_msgSender() == owner());
+    function bulkAddAnimated(uint256[] memory _tokenIds) public override  {
+        require(_msgSender() == owner() || _managers[_msgSender()]);
         for(uint32 i = 0; i < _tokenIds.length; i++) {
             _rarities[_tokenIds[i]] = uint64(_baseReward)*2;
         }
     }
     
-    function bulkAddGilded(uint256[] memory _tokenIds) public {
-        require(_msgSender() == owner());
+    function bulkAddGilded(uint256[] memory _tokenIds) public override  {
+        require(_msgSender() == owner() || _managers[_msgSender()]);
         for(uint32 i = 0; i < _tokenIds.length; i++) {
             _rarities[_tokenIds[i]] = uint64(_baseReward)*4;
         }
@@ -3671,50 +3679,52 @@ contract TheImpossibleGame is Ownable, IERC1155Receiver, IERC721Receiver, ERC165
     function checkNextIndex(uint256 tokenID) public pure returns (uint256) {
         return tokenID.nextIndex();
     }
-    
-    function claimableAirdrop(address _owner, uint256 tokenID) public view returns (bool) {
-        require(_active, "Not yet Active");
-        if(IERC1155(_airDropContract).balanceOf(_owner, tokenID) > 0) {
-            if(address(0xbAad3fde86fAA3B42D6A047060308E49A24Ec9E7) == tokenID.tokenCreator()) {
-                if(tokenID.tokenIndex() <= _airDropMaxID.tokenIndex()) {
-                    if(!_airDropClaimed[tokenID]) {
-                        return true;
-                    }
-                }
-            }
+
+    function defineWord(address _owner, uint256 _tokenID, uint256 _rarity, string memory _word, string memory _URI) public override  {
+        require(_msgSender() == owner() || _managers[_msgSender()]);
+        require(_msgSender() == owner() || _managers[_msgSender()]);
+        require(_mintbotTokens[_owner] >= 1, "Not enough tokens to withdraw");
+        _mintbotTokens[_owner] = _mintbotTokens[_owner] - 1;
+        _words.setCustomURI(_tokenID, _URI, _word);
+        if(_rarity > 0) {
+            uint256[] memory tID = new uint256[](1);
+            tID[0] = _tokenID;
+            
+            if(_rarity == 1)
+                bulkAddTrippy(tID);
+            else if(_rarity == 2)
+                bulkAddAnimated(tID);
+            else if(_rarity == 3)
+                bulkAddGilded(tID);
         }
-        return false;
     }
     
-    function claimBatchAirDrop(address _owner, uint256[] calldata _tokenIds) public returns (uint256) {
-        require(_active, "Not yet Active");
-        uint256 _value = 0;
-        for(uint8 i = 0; i < _tokenIds.length; i++) {
-            uint256 tokenID = _tokenIds[i];
-            if(claimableAirdrop(_owner, tokenID)){
-                _airDropClaimed[tokenID] = true;
-                uint256 v = ((uint256(_rarities[tokenID])+_baseReward) / _baseReward) * uint256(1000000000000);
-                _value += v;
-                emit AirdropClaimed(_owner, tokenID, v);
-            }
-        }
-        _token.mint(_owner, _value);
-        return _value;
+    function claimableAirdrop(address _owner, uint256 tokenID) public override view returns (bool) {
+        return oldState.claimableAirdrop(_owner,tokenID);
     }
-    
-    function claimAirDrop(address _owner, uint256 tokenID) public returns (uint256) {
-        require(_active, "Not yet Active");
-        require(address(0xbAad3fde86fAA3B42D6A047060308E49A24Ec9E7) == tokenID.tokenCreator(), "Not a valid NFT");
-        require(IERC1155(_airDropContract).balanceOf(_owner, tokenID) > 0, "Not a valid NFT");
-        require(tokenID.tokenIndex() <= _airDropMaxID.tokenIndex(), "Not a valid NFT");
-        require(!_airDropClaimed[tokenID], "Airdrop Already Claimed");
-        
-        uint256 value = ((uint256(_rarities[tokenID])+_baseReward) / _baseReward) * uint256(1000000000000);
-        _airDropClaimed[tokenID] = true;
-        _token.mint(_owner, value);
-        emit AirdropClaimed(_owner, tokenID, value);
-        
+
+    function claimBatchAirDrop(address _owner, uint256[] calldata _tokenIds, uint256[] calldata _stakedTokenIds) public override returns (uint256)  {
+        require(_msgSender() == owner() || _msgSender() == _owner || _managers[_msgSender()]);
+        for(uint i = 0; i < _stakedTokenIds.length; i++) {
+            require(_stakedToOwner[_stakedTokenIds[i]] == _owner, "Not your staked NFT!");
+        }
+        uint256 value = oldState.claimBatchAirDrop(_owner, _tokenIds);
+        uint256 value2 = oldState.claimBatchAirDrop(address(this), _stakedTokenIds);
+        _token.managedTransfer(address(this), _token.depositAddress(_owner), value2);
+        value = value + value2;
         return value;
+    }
+    
+    function claimBatchAirDrop(address _owner, uint256[] calldata _tokenIds) public returns (uint256)  {
+        _owner; _tokenIds;
+        require(false, "Only use other claimBatchAirDrop with 3 params (routes to old contract)");
+        return 0;
+    }
+    
+    function claimAirDrop(address _owner, uint256 tokenID) public returns (uint256)  {
+        _owner; tokenID;
+        require(false, "Only use claimBatchAirDrop with 3 params (routes to old contract)");
+        return 0;
     }
     
     function onERC721Received(
@@ -3763,13 +3773,13 @@ contract TheImpossibleGame is Ownable, IERC1155Receiver, IERC721Receiver, ERC165
         return IERC1155Receiver.onERC1155Received.selector;
     }
 
-    function _setMintbotTokenPrice(uint256 price) public {
+    function _setMintbotTokenPrice(uint256 price) public override  {
         require(_msgSender() == owner());
         _currentMintbotPrice = price;
     }
 
-    function _purchaseMintbotToken(address _owner, uint256 _maxPrice) public {
-        require(_msgSender() == owner() || _owner == _msgSender());
+    function _purchaseMintbotToken(address _owner, uint256 _maxPrice) public override  {
+        require(_msgSender() == owner() || _owner == _msgSender() || _managers[_msgSender()]);
         require(_maxPrice >= _currentMintbotPrice, "Max price exceeded.");
         require(_token.balanceOf(_token.depositAddress(_owner)) >= _currentMintbotPrice, "Cannot afford purchase price");
         _token.managedTransfer(_owner, address(this), _currentMintbotPrice);
@@ -3783,8 +3793,8 @@ contract TheImpossibleGame is Ownable, IERC1155Receiver, IERC721Receiver, ERC165
         IERC1155(_airDropContract).safeTransferFrom(address(this), owner(), _mintbotTokenID, _quantity, "");
     }
 
-    function _withdrawMintbotToken(address _owner, uint256 _quantity) public {
-        require(_msgSender() == owner() || _owner == _msgSender());
+    function _withdrawMintbotToken(address _owner, uint256 _quantity) public override  {
+        require(_msgSender() == owner() || _owner == _msgSender() || _managers[_msgSender()]);
         require(_mintbotTokens[_owner] >= _quantity, "Not enough tokens to withdraw");
         _mintbotTokens[_owner] = _mintbotTokens[_owner] - _quantity;
         IERC1155(_airDropContract).safeTransferFrom(owner(), _owner, _mintbotTokenID, _quantity, "");
@@ -3802,8 +3812,8 @@ contract TheImpossibleGame is Ownable, IERC1155Receiver, IERC721Receiver, ERC165
         emit NftStaked(_owner, _contract, _tokenId, block.number, _type);
     }
     
-    function setUsageFee(address _owner, uint256 _tokenId, uint56 _fee) public {
-        require(_msgSender() == owner() || _owner == _msgSender());
+    function setUsageFee(address _owner, uint256 _tokenId, uint56 _fee) public override  {
+        require(_msgSender() == owner() || _owner == _msgSender() || _managers[_msgSender()]);
         require(_stakedNFTs[_owner].contains(_tokenId), "Not a staked NFT!");
         stakedNFT storage nft = _stakedNFTs[_owner].get(_tokenId);
         nft._usageFee = _fee;
@@ -3811,12 +3821,12 @@ contract TheImpossibleGame is Ownable, IERC1155Receiver, IERC721Receiver, ERC165
         emit UsageFeeSet(_owner, _tokenId, _fee);
     }
     
-    function getStakedNFTData(uint256 _tokenId) public view returns (stakedNFT memory) {
+    function getStakedNFTData(uint256 _tokenId) public override view returns (stakedNFT memory)  {
         return _stakedNFTs[_stakedToOwner[_tokenId]].get(_tokenId);
     }
     
-    function unStakeNFT(address _owner, uint256 _tokenId) public {
-        require(_msgSender() == owner() || _owner == _msgSender());
+    function unStakeNFT(address _owner, uint256 _tokenId) public override  {
+        require(_msgSender() == owner() || _owner == _msgSender() || _managers[_msgSender()]);
         require(_stakedNFTs[_owner].contains(_tokenId), "Not a staked NFT!");
         stakedNFT storage nft = _stakedNFTs[_owner].get(_tokenId);
         _token.mint(_owner, nft.currentValue());
@@ -3834,8 +3844,8 @@ contract TheImpossibleGame is Ownable, IERC1155Receiver, IERC721Receiver, ERC165
         emit NftUnStaked(_owner, contractAddress, _tokenId, block.number, contractType);
     }
     
-    function claimZXVC(address _owner, uint256 _tokenId) public {
-        require(_msgSender() == owner() || _owner == _msgSender());
+    function claimZXVC(address _owner, uint256 _tokenId) public override  {
+        require(_msgSender() == owner() || _owner == _msgSender() || _managers[_msgSender()]);
         require(_stakedNFTs[_owner].contains(_tokenId), "Not a staked NFT!");
         stakedNFT storage nft = _stakedNFTs[_owner].get(_tokenId);
         _token.mint(_owner, nft.currentValue());
@@ -3843,8 +3853,8 @@ contract TheImpossibleGame is Ownable, IERC1155Receiver, IERC721Receiver, ERC165
         _stakedNFTs[_owner].insert(_tokenId, nft);
     }
 
-    function claimAllZXVC(address _owner, uint256[] calldata _tokenId) public {
-        require(_msgSender() == owner() || _owner == _msgSender());
+    function claimAllZXVC(address _owner, uint256[] calldata _tokenId) public override  {
+        require(_msgSender() == owner() || _owner == _msgSender() || _managers[_msgSender()]);
         uint256 harvest = 0;
         for(uint i = 0; i < _tokenId.length; i++) {
             require(_stakedNFTs[_owner].contains(_tokenId[i]), "Not a staked NFT!");
